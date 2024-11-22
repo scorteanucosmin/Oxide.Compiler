@@ -10,7 +10,7 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
-using System.Text.RegularExpressions;
+using Oxide.CompilerServices.Common;
 using Serilog.Events;
 
 namespace Oxide.CompilerServices.CSharp
@@ -25,7 +25,7 @@ namespace Oxide.CompilerServices.CSharp
 
         private readonly IServiceProvider _services;
 
-        private readonly ImmutableArray<string> ignoredCodes = ImmutableArray.Create(new string[]
+        private readonly ImmutableArray<string> _ignoredCodes = ImmutableArray.Create(new[]
         {
             "CS1701"
         });
@@ -79,13 +79,11 @@ namespace Oxide.CompilerServices.CSharp
                 }
             }
 
-
-
             _logger.LogDebug(Events.Compile, details);
 
             try
             {
-                CompilerMessage message = await SafeCompile(data, new CompilerMessage() { Id = id, Type = CompilerMessageType.Assembly, Client = data.Message.Client });
+                CompilerMessage message = await SafeCompile(data, new CompilerMessage { Id = id, Type = CompilerMessageType.Assembly, Client = data.Message.Client });
                 CompilationResult result = message.Data as CompilationResult;
 
                 if (result.Data.Length > 0)
@@ -103,15 +101,22 @@ namespace Oxide.CompilerServices.CSharp
             catch (Exception e)
             {
                 _logger.LogError(Events.Compile, e, $"Error while compiling job {id} - {e.Message}");
-                data.Message.Client!.PushMessage(new CompilerMessage() { Id = id, Type = CompilerMessageType.Error, Data = e });
+                data.Message.Client!.PushMessage(new CompilerMessage { Id = id, Type = CompilerMessageType.Error, Data = e });
             }
         }
 
         private async Task<CompilerMessage> SafeCompile(CompilerData data, CompilerMessage message)
         {
-            if (data == null) throw new ArgumentNullException(nameof(data), "Missing compile data");
+            if (data == null)
+            {
+                throw new ArgumentNullException(nameof(data), "Missing compile data");
+            }
 
-            if (data.SourceFiles == null || data.SourceFiles.Length == 0) throw new ArgumentException("No source files provided", nameof(data.SourceFiles));
+            if (data.SourceFiles == null || data.SourceFiles.Length == 0)
+            {
+                throw new ArgumentException("No source files provided", nameof(data.SourceFiles));
+            }
+
             OxideResolver resolver = (OxideResolver)_services.GetRequiredService<MetadataReferenceResolver>();
 
             Dictionary<string, MetadataReference> references = new(StringComparer.OrdinalIgnoreCase);
@@ -127,9 +132,9 @@ namespace Oxide.CompilerServices.CSharp
                 references.Add("System.Data.Common.dll", resolver.Reference("System.Data.Common.dll")!);
             }
 
-            if (data.ReferenceFiles != null && data.ReferenceFiles.Length > 0)
+            if (data.ReferenceFiles is { Length: > 0 })
             {
-                foreach (var reference in data.ReferenceFiles)
+                foreach (CompilerFile reference in data.ReferenceFiles)
                 {
                     string fileName = Path.GetFileName(reference.Name);
                     switch (Path.GetExtension(reference.Name))
@@ -137,7 +142,9 @@ namespace Oxide.CompilerServices.CSharp
                         case ".cs":
                         case ".exe":
                         case ".dll":
-                            references[fileName] = File.Exists(reference.Name) && (reference.Data == null || reference.Data.Length == 0)  ? MetadataReference.CreateFromFile(reference.Name) : MetadataReference.CreateFromImage(reference.Data, filePath: reference.Name);
+                            references[fileName] = File.Exists(reference.Name) && (reference.Data == null ||
+                                reference.Data.Length == 0)  ? MetadataReference.CreateFromFile(reference.Name) :
+                                MetadataReference.CreateFromImage(reference.Data, filePath: reference.Name);
                             continue;
 
                         default:
@@ -151,15 +158,16 @@ namespace Oxide.CompilerServices.CSharp
             Dictionary<CompilerFile, SyntaxTree> trees = new();
             Encoding encoding = Encoding.GetEncoding(data.Encoding);
             CSharpParseOptions options = new(data.CSharpVersion(), preprocessorSymbols: data.Preprocessor);
-            foreach (var source in data.SourceFiles)
+            foreach (CompilerFile source in data.SourceFiles)
             {
                 string fileName = Path.GetFileName(source.Name);
                 bool isUnicode = false;
-                string sourceString = Regex.Replace(encoding.GetString(source.Data), @"\\[uU]([0-9A-F]{4})", match =>
+
+                string sourceString = RegexExtensions.UnicodeEscapePattern().Replace(encoding.GetString(source.Data), match =>
                 {
                     isUnicode = true;
                     return ((char)int.Parse(match.Value.Substring(2), NumberStyles.HexNumber)).ToString();
-                }, RegexOptions.Compiled | RegexOptions.IgnoreCase);
+                });
 
                 if (isUnicode)
                 {
@@ -169,8 +177,12 @@ namespace Oxide.CompilerServices.CSharp
                 SyntaxTree tree = CSharpSyntaxTree.ParseText(sourceString, options, path: fileName, encoding: encoding, cancellationToken: _token);
                 trees.Add(source, tree);
             }
+
             _logger.LogDebug(Events.Compile, $"Added {trees.Count} plugins to the project");
-            CSharpCompilationOptions compOptions = new(data.OutputKind(), metadataReferenceResolver: resolver, platform: data.Platform(), allowUnsafe: true, optimizationLevel: data.Debug ? OptimizationLevel.Debug : OptimizationLevel.Release);
+
+            CSharpCompilationOptions compOptions = new(data.OutputKind(), metadataReferenceResolver: resolver, platform: data.Platform(),
+                allowUnsafe: true, optimizationLevel: data.Debug ? OptimizationLevel.Debug : OptimizationLevel.Release);
+
             CSharpCompilation comp = CSharpCompilation.Create(Path.GetRandomFileName(), trees.Values, references.Values, compOptions);
 
             CompilationResult result = new()
@@ -197,9 +209,9 @@ namespace Oxide.CompilerServices.CSharp
 
             bool modified = false;
 
-            foreach (var diag in result.Diagnostics)
+            foreach (Diagnostic diag in result.Diagnostics)
             {
-                if (ignoredCodes.Contains(diag.Id))
+                if (_ignoredCodes.Contains(diag.Id))
                 {
                     continue;
                 }

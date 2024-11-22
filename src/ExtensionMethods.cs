@@ -59,6 +59,8 @@ namespace Oxide.CompilerServices
             return data.Version switch
             {
                 CompilerLanguageVersion.Preview => Microsoft.CodeAnalysis.CSharp.LanguageVersion.Preview,
+                CompilerLanguageVersion.V13 => Microsoft.CodeAnalysis.CSharp.LanguageVersion.CSharp13,
+                CompilerLanguageVersion.V12 => Microsoft.CodeAnalysis.CSharp.LanguageVersion.CSharp12,
                 CompilerLanguageVersion.V11 => Microsoft.CodeAnalysis.CSharp.LanguageVersion.CSharp11,
                 CompilerLanguageVersion.V10 => Microsoft.CodeAnalysis.CSharp.LanguageVersion.CSharp10,
                 CompilerLanguageVersion.V9 => Microsoft.CodeAnalysis.CSharp.LanguageVersion.CSharp9,

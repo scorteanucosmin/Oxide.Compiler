@@ -25,7 +25,7 @@ namespace Oxide.CompilerServices
         {
             Program.ApplicationLogLevel.MinimumLevel = options.Logging.Level.ToSerilog();
             TokenSource = tk;
-            this.Logger = logger;
+            Logger = logger;
             Settings = options;
             Services = provider;
             CompilerQueue = new Queue<CompilerMessage>();
@@ -74,7 +74,7 @@ namespace Oxide.CompilerServices
             ObjectStream!.Start();
             Logger.LogInformation(Events.Startup, "Message server has started");
             Task.Delay(TimeSpan.FromSeconds(2), TokenSource.Token).Wait();
-            ObjectStream.PushMessage(new CompilerMessage() { Type = CompilerMessageType.Ready });
+            ObjectStream.PushMessage(new CompilerMessage { Type = CompilerMessageType.Ready });
             Logger.LogInformation(Events.Startup, "Sent ready message to parent process");
 
             Task<Task> task = Task.Factory.StartNew(
