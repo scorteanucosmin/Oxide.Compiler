@@ -21,7 +21,7 @@ jobs:
           token: ${{ secrets.REPO_ACCESS_TOKEN }}
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 7.0.x
+          dotnet-version: 9.0.x
       - name: Build Executables
         shell: pwsh
         run: |
