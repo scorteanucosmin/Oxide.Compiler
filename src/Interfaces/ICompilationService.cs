@@ -4,5 +4,5 @@ namespace Oxide.CompilerServices.Interfaces;
 
 public interface ICompilationService
 {
-    public Task Compile(int id, CompilerData data);
+    public Task CompileAsync(int id, CompilerData data, CancellationToken cancellationToken);
 }

@@ -27,25 +27,23 @@ internal class CompilationService : ICompilationService
 
     private readonly ISerializer _serializer;
 
-    private readonly CancellationToken _cancellationToken;
-
     private readonly ImmutableArray<string> _ignoredCodes = ImmutableArray.Create(new[]
     {
         "CS1701"
     });
 
-    public CompilationService(ILogger<CompilationService> logger, OxideSettings settings, MessageBrokerService messageBrokerService,
-        MetadataReferenceResolver metadataReferenceResolver, ISerializer serializer, CancellationTokenSource cancellationTokenSource)
+    public CompilationService(ILogger<CompilationService> logger, OxideSettings settings,
+        MessageBrokerService messageBrokerService, MetadataReferenceResolver metadataReferenceResolver,
+        ISerializer serializer)
     {
         _logger = logger;
         _settings = settings;
         _messageBrokerService = messageBrokerService;
         _metadataReferenceResolver = metadataReferenceResolver;
         _serializer = serializer;
-        _cancellationToken = cancellationTokenSource.Token;
     }
 
-    public async Task Compile(int id, CompilerData data)
+    public async Task CompileAsync(int id, CompilerData data, CancellationToken cancellationToken)
     {
         Stopwatch stopwatch = Stopwatch.StartNew();
         _logger.LogInformation(Constants.CompileEventId, $"Starting compilation of job {id} | Total Plugins: {data.SourceFiles.Length}");
@@ -97,7 +95,7 @@ internal class CompilationService : ICompilationService
             };
 
             CompilationResult compilationResult = new();
-            CompilerMessage message = await SafeCompile(data, compilerMessage, compilationResult);
+            CompilerMessage message = await SafeCompileAsync(data, compilerMessage, compilationResult, cancellationToken);
 
             if (compilationResult.Data.Length > 0)
             {
@@ -125,8 +123,8 @@ internal class CompilationService : ICompilationService
         }
     }
 
-    private async Task<CompilerMessage> SafeCompile(CompilerData data, CompilerMessage compilerMessage,
-        CompilationResult compilationResult)
+    private async Task<CompilerMessage> SafeCompileAsync(CompilerData data, CompilerMessage compilerMessage,
+        CompilationResult compilationResult, CancellationToken cancellationToken)
     {
         try
         {
@@ -203,23 +201,23 @@ internal class CompilationService : ICompilationService
                 }
 
                 SyntaxTree tree = CSharpSyntaxTree.ParseText(sourceString, options, path: fileName,
-                    encoding: encoding, cancellationToken: _cancellationToken);
+                    encoding: encoding, cancellationToken: cancellationToken);
                 trees.Add(source, tree);
             }
 
             _logger.LogDebug(Constants.CompileEventId, $"Added {trees.Count} plugins to the project");
 
-            CSharpCompilationOptions compOptions = new(data.OutputKind(), metadataReferenceResolver: resolver,
+            CSharpCompilationOptions compilationOptions = new(data.OutputKind(), metadataReferenceResolver: resolver,
                 platform: data.Platform(),
                 allowUnsafe: true,
                 optimizationLevel: data.Debug ? OptimizationLevel.Debug : OptimizationLevel.Release);
 
-            CSharpCompilation comp = CSharpCompilation.Create(Path.GetRandomFileName(), trees.Values,
-                references.Values, compOptions);
+            CSharpCompilation compilation = CSharpCompilation.Create(Path.GetRandomFileName(), trees.Values,
+                references.Values, compilationOptions);
 
-            compilationResult.Name = comp.AssemblyName;
+            compilationResult.Name = compilation.AssemblyName;
 
-            CompileProject(comp, compilerMessage, compilationResult);
+            CompileProject(compilation, compilerMessage, compilationResult, cancellationToken);
 
             compilerMessage.Data = _serializer.Serialize(compilationResult);
             return compilerMessage;
@@ -231,10 +229,11 @@ internal class CompilationService : ICompilationService
         }
     }
 
-    private void CompileProject(CSharpCompilation compilation, CompilerMessage message, CompilationResult compilationResult)
+    private void CompileProject(CSharpCompilation compilation, CompilerMessage message, CompilationResult compilationResult,
+        CancellationToken cancellationToken)
     {
         using MemoryStream pe = new();
-        EmitResult result = compilation.Emit(pe, cancellationToken: _cancellationToken);
+        EmitResult result = compilation.Emit(pe, cancellationToken: cancellationToken);
 
         if (result.Success)
         {
@@ -263,7 +262,9 @@ internal class CompilationService : ICompilationService
 
                 if (compilation.SyntaxTrees.Contains(tree) && diag.Severity == DiagnosticSeverity.Error)
                 {
-                    _logger.LogWarning(Constants.CompileEventId, "Failed to compile {tree} - {message} (L: {line} | P: {pos}) | Removing from project", fileName, diag.GetMessage(), line, charPos);
+                    _logger.LogWarning(Constants.CompileEventId, "Failed to compile {tree} - {message} (L: {line} | P: {pos}) | Removing from project",
+                        fileName, diag.GetMessage(), line, charPos);
+
                     compilation = compilation.RemoveSyntaxTrees(tree);
                     message.ExtraData += $"[Error][{diag.Id}][{fileName}] {diag.GetMessage()} | Line: {line}, Pos: {charPos} {Environment.NewLine}";
                     modified = true;
@@ -278,7 +279,7 @@ internal class CompilationService : ICompilationService
 
         if (modified && compilation.SyntaxTrees.Length > 0)
         {
-            CompileProject(compilation, message, compilationResult);
+            CompileProject(compilation, message, compilationResult, cancellationToken);
         }
     }
 }
