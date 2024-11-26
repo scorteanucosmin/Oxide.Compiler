@@ -90,7 +90,6 @@ internal class Program
                     logging.AddSimpleConsole();
                 }
             }).WithServices(services => services
-                .AddSingleton<CancellationTokenSource>()
                 .AddSingleton<ICompilationService, CompilationService>()
                 .AddTransient<MetadataReferenceResolver, OxideResolver>()
                 .AddSingleton<MessageBrokerService>()
