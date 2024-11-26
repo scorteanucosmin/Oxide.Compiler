@@ -42,8 +42,8 @@ public class MessageBrokerService
 
     public void Start(Stream input, Stream output)
     {
-        _input = input;
-        _output = output;
+        _input = input ?? throw new ArgumentNullException(nameof(input));
+        _output = output ?? throw new ArgumentNullException(nameof(output));
 
         Task.Run(WorkerAsync, _cancellationToken);
 
@@ -211,15 +211,12 @@ public class MessageBrokerService
         }
 
         _disposed = true;
-        if (disposing)
+
+        if (!disposing)
         {
-            /*if (this.Receiever is IDisposable receiever)
-                receiever.Dispose();
-            if (this.Transmitter is IDisposable transmitter)
-                transmitter.Dispose();
-            if (this.Formatter is IDisposable formatter)
-                formatter.Dispose();*/
-            _messageQueue.Clear();
+            return;
         }
+
+        _messageQueue.Clear();
     }
 }
