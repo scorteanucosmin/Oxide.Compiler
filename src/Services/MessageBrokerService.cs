@@ -12,9 +12,7 @@ public class MessageBrokerService
 
     private readonly ISerializer _serializer;
 
-    private readonly CancellationTokenSource _cancellationTokenSource;
-
-    private readonly CancellationToken _cancellationToken;
+    private CancellationToken _cancellationToken;
 
     private Stream _input;
 
@@ -30,20 +28,19 @@ public class MessageBrokerService
 
     public event Action<CompilerMessage> OnMessageReceived;
 
-    public MessageBrokerService(ILogger<MessageBrokerService> logger, ISerializer serializer, CancellationTokenSource cancellationTokenSource)
+    public MessageBrokerService(ILogger<MessageBrokerService> logger, ISerializer serializer)
     {
         _logger = logger;
         _serializer = serializer;
-        _cancellationTokenSource = cancellationTokenSource;
-        _cancellationToken = _cancellationTokenSource.Token;
         _messageQueue = new ConcurrentQueue<CompilerMessage>();
         _pool = Pooling.ArrayPool<byte>.Shared;
     }
 
-    public void Start(Stream input, Stream output)
+    public void Start(Stream input, Stream output, CancellationToken cancellationToken)
     {
         _input = input ?? throw new ArgumentNullException(nameof(input));
         _output = output ?? throw new ArgumentNullException(nameof(output));
+        _cancellationToken = cancellationToken;
 
         Task.Run(WorkerAsync, _cancellationToken);
 

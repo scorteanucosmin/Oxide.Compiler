@@ -79,7 +79,7 @@ namespace Oxide.CompilerServices
                 return;
             }
 
-            _messageBrokerService.Start(Console.OpenStandardOutput(), Console.OpenStandardInput());
+            _messageBrokerService.Start(Console.OpenStandardOutput(), Console.OpenStandardInput(), _cancellationToken);
 
             _messageBrokerService.OnMessageReceived += OnMessageReceived;
 
