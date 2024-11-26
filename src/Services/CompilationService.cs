@@ -43,7 +43,7 @@ internal class CompilationService : ICompilationService
         _serializer = serializer;
     }
 
-    public async Task CompileAsync(int id, CompilerData data, CancellationToken cancellationToken)
+    public async ValueTask CompileAsync(int id, CompilerData data, CancellationToken cancellationToken)
     {
         Stopwatch stopwatch = Stopwatch.StartNew();
         _logger.LogInformation(Constants.CompileEventId, $"Starting compilation of job {id} | Total Plugins: {data.SourceFiles.Length}");
@@ -123,7 +123,7 @@ internal class CompilationService : ICompilationService
         }
     }
 
-    private async Task<CompilerMessage> SafeCompileAsync(CompilerData data, CompilerMessage compilerMessage,
+    private async ValueTask<CompilerMessage> SafeCompileAsync(CompilerData data, CompilerMessage compilerMessage,
         CompilationResult compilationResult, CancellationToken cancellationToken)
     {
         try
@@ -183,6 +183,7 @@ internal class CompilationService : ICompilationService
             Dictionary<CompilerFile, SyntaxTree> trees = new();
             Encoding encoding = Encoding.GetEncoding(data.Encoding);
             CSharpParseOptions options = new(data.CSharpVersion(), preprocessorSymbols: data.Preprocessor);
+
             foreach (CompilerFile source in data.SourceFiles)
             {
                 string fileName = Path.GetFileName(source.Name);

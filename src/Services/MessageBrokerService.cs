@@ -127,8 +127,6 @@ public class MessageBrokerService
     {
         while (!_cancellationToken.IsCancellationRequested)
         {
-            _logger.LogInformation("Worker method running");
-
             bool processed = false;
             try
             {
