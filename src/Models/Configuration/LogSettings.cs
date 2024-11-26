@@ -1,6 +1,6 @@
 ﻿using Microsoft.Extensions.Logging;
 
-namespace Oxide.CompilerServices.Settings
+namespace Oxide.CompilerServices.Models.Configuration
 {
     public class LogSettings
     {

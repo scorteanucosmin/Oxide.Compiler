@@ -1,4 +1,4 @@
-﻿namespace Oxide.CompilerServices.Settings
+﻿namespace Oxide.CompilerServices.Models.Configuration
 {
     public class CompilerSettings
     {

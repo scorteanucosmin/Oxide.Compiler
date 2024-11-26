@@ -1,9 +1,9 @@
-﻿using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Options;
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 
-namespace Oxide.CompilerServices.Settings
+namespace Oxide.CompilerServices.Models.Configuration
 {
     public class OxideSettings
     {
