@@ -6,46 +6,46 @@ namespace Oxide.CompilerServices
 {
     internal class ApplicationBuilder
     {
-        private readonly IServiceCollection services;
-        private IConfigurationBuilder? configuration;
-        private IConfigurationRoot? configRoot;
+        private readonly IServiceCollection _services;
+        private ConfigurationBuilder? _configuration;
+        private IConfigurationRoot? _configRoot;
 
         public ApplicationBuilder()
         {
-            services = new ServiceCollection();
+            _services = new ServiceCollection();
         }
 
         public ApplicationBuilder WithConfiguration(Action<IConfigurationBuilder> configure, Action<IConfiguration, IServiceCollection>? addconfigs = null)
         {
-            services.AddOptions();
-            configuration = new ConfigurationBuilder();
-            configure(configuration);
-            configRoot = configuration.Build();
-            addconfigs?.Invoke(configRoot, services);
+            _services.AddOptions();
+            _configuration = new ConfigurationBuilder();
+            configure(_configuration);
+            _configRoot = _configuration.Build();
+            addconfigs?.Invoke(_configRoot, _services);
             return this;
         }
 
         public ApplicationBuilder WithLogging(Action<ILoggingBuilder, IConfiguration?> configure)
         {
-            services.AddLogging(s => configure(s, configRoot));
+            _services.AddLogging(s => configure(s, _configRoot));
             return this;
         }
 
         public ApplicationBuilder WithServices(Action<IServiceCollection> services)
         {
-            services?.Invoke(this.services);
+            services?.Invoke(_services);
             return this;
         }
 
         public Application Build()
         {
-            if (configRoot != null)
+            if (_configRoot != null)
             {
-                services.AddSingleton(configRoot);
+                _services.AddSingleton(_configRoot);
             }
 
-            services.AddSingleton<Application>();
-            return services.BuildServiceProvider().GetRequiredService<Application>();
+            _services.AddSingleton<Application>();
+            return _services.BuildServiceProvider().GetRequiredService<Application>();
         }
     }
 }
