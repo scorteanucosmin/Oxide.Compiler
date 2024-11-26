@@ -26,8 +26,7 @@ namespace Oxide.CompilerServices
         private readonly ConcurrentQueue<CompilerMessage> _compilerQueue;
 
         public Application(MessageBrokerService messageBrokerService, ILogger<Application> logger, OxideSettings options,
-            CancellationTokenSource cancellationTokenSource, ICompilationService compilationService,
-            ISerializer serializer)
+            ICompilationService compilationService, ISerializer serializer)
         {
             Program.ApplicationLogLevel.MinimumLevel = options.Logging.Level.ToSerilog();
 
@@ -37,7 +36,7 @@ namespace Oxide.CompilerServices
             _logger = logger;
             _settings = options;
             _compilerQueue = new ConcurrentQueue<CompilerMessage>();
-            _cancellationTokenSource = cancellationTokenSource;
+            _cancellationTokenSource = new CancellationTokenSource();
             _cancellationToken = _cancellationTokenSource.Token;
         }
 
@@ -138,6 +137,7 @@ namespace Oxide.CompilerServices
             while (!_cancellationToken.IsCancellationRequested)
             {
                 await Task.Delay(500, _cancellationToken);
+
                 if (!_compilerQueue.TryDequeue(out CompilerMessage compilerMessage))
                 {
                     continue;
@@ -145,9 +145,9 @@ namespace Oxide.CompilerServices
 
                 try
                 {
-                    CompilerData data = _serializer.Deserialize<CompilerData>(compilerMessage.Data);
+                    CompilerData compilerData = _serializer.Deserialize<CompilerData>(compilerMessage.Data);
 
-                    await _compilationService.Compile(compilerMessage.Id, data);
+                    await _compilationService.CompileAsync(compilerMessage.Id, compilerData, _cancellationToken);
 
                     _logger.LogInformation($"Completed compile job {compilerMessage.Id}");
                 }
