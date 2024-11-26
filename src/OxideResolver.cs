@@ -1,9 +1,8 @@
 ﻿using Microsoft.CodeAnalysis;
 using Microsoft.Extensions.Logging;
-using Oxide.CompilerServices.Logging;
-using Oxide.CompilerServices.Settings;
 using System.Collections.Immutable;
-using System.Diagnostics;
+using Oxide.CompilerServices.Common;
+using Oxide.CompilerServices.Models.Configuration;
 
 namespace Oxide.CompilerServices
 {
@@ -74,7 +73,7 @@ namespace Oxide.CompilerServices
                 return reference;
             }
 
-            logger.LogError(Events.Compile, "Unable to find required dependency {name}", name);
+            logger.LogError(Constants.CompileEventId, "Unable to find required dependency {name}", name);
             return null;
         }
     }
