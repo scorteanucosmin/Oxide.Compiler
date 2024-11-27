@@ -59,6 +59,7 @@ namespace Oxide.CompilerServices
                     {
                         _settings.ParentProcess.EnableRaisingEvents = true;
                         _settings.ParentProcess.Exited += (s, o) => Stop("parent process shutdown");
+
                         _logger.LogInformation(Constants.StartupEventId, "Watching parent process ([{id}] {name}) for shutdown",
                             _settings.ParentProcess.Id, _settings.ParentProcess.ProcessName);
                     }
@@ -101,7 +102,6 @@ namespace Oxide.CompilerServices
 
         private void OnMessageReceived(CompilerMessage compilerMessage)
         {
-            _logger.LogInformation($"Received message from client of type: {compilerMessage.Type}");
             if (_cancellationToken.IsCancellationRequested)
             {
                 return;
@@ -149,11 +149,12 @@ namespace Oxide.CompilerServices
 
                     await _compilationService.CompileAsync(compilerMessage.Id, compilerData, _cancellationToken);
 
-                    _logger.LogInformation($"Completed compile job {compilerMessage.Id}");
+                    _logger.LogInformation(Constants.CompileEventId,$"Completed compile job {compilerMessage.Id}");
                 }
                 catch (Exception exception)
                 {
-                    _logger.LogError($"Error occurred while compiling job {compilerMessage.Id}: {exception}");
+                    _logger.LogError(Constants.CompileEventId,
+                        $"Error occurred while compiling job {compilerMessage.Id}: {exception}");
                     throw;
                 }
             }

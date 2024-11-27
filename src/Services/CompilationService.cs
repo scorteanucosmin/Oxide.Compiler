@@ -123,26 +123,25 @@ internal class CompilationService : ICompilationService
         }
     }
 
-    private async ValueTask<CompilerMessage> SafeCompileAsync(CompilerData data, CompilerMessage compilerMessage,
+    private async ValueTask<CompilerMessage> SafeCompileAsync(CompilerData compilerData, CompilerMessage compilerMessage,
         CompilationResult compilationResult, CancellationToken cancellationToken)
     {
         try
         {
-            if (data == null)
+            if (compilerData == null)
             {
-                throw new ArgumentNullException(nameof(data), "Missing compile data");
+                throw new ArgumentNullException(nameof(compilerData), "Missing compile data");
             }
 
-            if (data.SourceFiles == null || data.SourceFiles.Length == 0)
+            if (compilerData.SourceFiles == null || compilerData.SourceFiles.Length == 0)
             {
-                throw new ArgumentException("No source files provided", nameof(data.SourceFiles));
+                throw new ArgumentException("No source files provided", nameof(compilerData.SourceFiles));
             }
-
-            OxideResolver resolver = (OxideResolver)_metadataReferenceResolver;
 
             Dictionary<string, MetadataReference> references = new(StringComparer.OrdinalIgnoreCase);
 
-            if (data.StdLib)
+            OxideResolver resolver = (OxideResolver)_metadataReferenceResolver;
+            if (compilerData.StdLib)
             {
                 references.Add("System.Private.CoreLib.dll", resolver.Reference("System.Private.CoreLib.dll")!);
                 references.Add("netstandard.dll", resolver.Reference("netstandard.dll")!);
@@ -154,43 +153,47 @@ internal class CompilationService : ICompilationService
                 references.Add("System.Data.Common.dll", resolver.Reference("System.Data.Common.dll")!);
             }
 
-            if (data.ReferenceFiles is { Length: > 0 })
+            if (compilerData.ReferenceFiles is { Length: > 0 })
             {
-                foreach (CompilerFile reference in data.ReferenceFiles)
+                foreach (CompilerFile referenceFile in compilerData.ReferenceFiles)
                 {
-                    string fileName = Path.GetFileName(reference.Name);
-                    switch (Path.GetExtension(reference.Name))
+                    string fileName = Path.GetFileName(referenceFile.Name);
+                    switch (Path.GetExtension(referenceFile.Name))
                     {
                         case ".cs":
                         case ".exe":
                         case ".dll":
-                            references[fileName] = File.Exists(reference.Name) && (reference.Data == null ||
-                                reference.Data.Length == 0)
-                                ? MetadataReference.CreateFromFile(reference.Name)
-                                : MetadataReference.CreateFromImage(reference.Data, filePath: reference.Name);
+                        {
+                            references[fileName] = File.Exists(referenceFile.Name) && (referenceFile.Data == null ||
+                                referenceFile.Data.Length == 0)
+                                ? MetadataReference.CreateFromFile(referenceFile.Name)
+                                : MetadataReference.CreateFromImage(referenceFile.Data, filePath: referenceFile.Name);
                             continue;
-
+                        }
                         default:
+                        {
                             _logger.LogWarning(Constants.CompileEventId, "Ignoring unhandled project reference: {ref}",
                                 fileName);
                             continue;
+                        }
                     }
                 }
 
                 _logger.LogDebug(Constants.CompileEventId, $"Added {references.Count} project references");
             }
 
-            Dictionary<CompilerFile, SyntaxTree> trees = new();
-            Encoding encoding = Encoding.GetEncoding(data.Encoding);
-            CSharpParseOptions options = new(data.CSharpVersion(), preprocessorSymbols: data.Preprocessor);
+            Dictionary<CompilerFile, SyntaxTree> syntaxTrees = new();
+            Encoding encoding = Encoding.GetEncoding(compilerData.Encoding);
 
-            foreach (CompilerFile source in data.SourceFiles)
+            CSharpParseOptions parseOptions = new(compilerData.CSharpVersion(), preprocessorSymbols: compilerData.Preprocessor);
+
+            foreach (CompilerFile compilerFile in compilerData.SourceFiles)
             {
-                string fileName = Path.GetFileName(source.Name);
+                string fileName = Path.GetFileName(compilerFile.Name);
                 bool isUnicode = false;
 
                 string sourceString = RegexExtensions.UnicodeEscapePattern().Replace(
-                    encoding.GetString(source.Data), match =>
+                    encoding.GetString(compilerFile.Data), match =>
                     {
                         isUnicode = true;
                         return ((char)int.Parse(match.Value.Substring(2), NumberStyles.HexNumber)).ToString();
@@ -198,27 +201,30 @@ internal class CompilationService : ICompilationService
 
                 if (isUnicode)
                 {
-                    _logger.LogDebug(Constants.CompileEventId, $"Plugin {fileName} is using unicode escape sequence");
+                    _logger.LogDebug(Constants.CompileEventId,
+                        $"Plugin {fileName} is using unicode escape sequence");
                 }
 
-                SyntaxTree tree = CSharpSyntaxTree.ParseText(sourceString, options, path: fileName,
-                    encoding: encoding, cancellationToken: cancellationToken);
-                trees.Add(source, tree);
+                SyntaxTree syntaxTree = CSharpSyntaxTree.ParseText(sourceString, parseOptions, fileName, encoding,
+                    cancellationToken);
+
+                syntaxTrees.Add(compilerFile, syntaxTree);
             }
 
-            _logger.LogDebug(Constants.CompileEventId, $"Added {trees.Count} plugins to the project");
+            _logger.LogDebug(Constants.CompileEventId, $"Added {syntaxTrees.Count} plugins to the project");
 
-            CSharpCompilationOptions compilationOptions = new(data.OutputKind(), metadataReferenceResolver: resolver,
-                platform: data.Platform(),
+            CSharpCompilationOptions compilationOptions = new(compilerData.OutputKind(), metadataReferenceResolver: resolver,
+                platform: compilerData.Platform(),
                 allowUnsafe: true,
-                optimizationLevel: data.Debug ? OptimizationLevel.Debug : OptimizationLevel.Release);
+                optimizationLevel: compilerData.Debug ? OptimizationLevel.Debug : OptimizationLevel.Release);
 
-            CSharpCompilation compilation = CSharpCompilation.Create(Path.GetRandomFileName(), trees.Values,
+            string assemblyName = Path.GetRandomFileName();
+            CSharpCompilation compilation = CSharpCompilation.Create(assemblyName, syntaxTrees.Values,
                 references.Values, compilationOptions);
 
             compilationResult.Name = compilation.AssemblyName;
 
-            CompileProject(compilation, compilerMessage, compilationResult, cancellationToken);
+            CompileProject(compilation, compilerData, compilerMessage, compilationResult, cancellationToken);
 
             compilerMessage.Data = _serializer.Serialize(compilationResult);
             return compilerMessage;
@@ -230,57 +236,59 @@ internal class CompilationService : ICompilationService
         }
     }
 
-    private void CompileProject(CSharpCompilation compilation, CompilerMessage message, CompilationResult compilationResult,
-        CancellationToken cancellationToken)
+    private void CompileProject(CSharpCompilation compilation, CompilerData compilerData, CompilerMessage compilerMessage,
+        CompilationResult compilationResult, CancellationToken cancellationToken)
     {
-        using MemoryStream pe = new();
-        EmitResult result = compilation.Emit(pe, cancellationToken: cancellationToken);
+        using MemoryStream peStream = new();
+
+        EmitResult result = compilation.Emit(peStream, options: compilerData.Debug ? Constants.PdbEmitOptions : null,
+            cancellationToken: cancellationToken);
 
         if (result.Success)
         {
-            compilationResult.Data = pe.ToArray();
+            compilationResult.Data = peStream.ToArray();
             compilationResult.Success = compilation.SyntaxTrees.Length;
             return;
         }
 
         bool modified = false;
 
-        foreach (Diagnostic diag in result.Diagnostics)
+        foreach (Diagnostic diagnostic in result.Diagnostics)
         {
-            if (_ignoredCodes.Contains(diag.Id))
+            if (_ignoredCodes.Contains(diagnostic.Id))
             {
                 continue;
             }
 
-            if (diag.Location.SourceTree != null)
+            if (diagnostic.Location.SourceTree != null)
             {
-                SyntaxTree tree = diag.Location.SourceTree;
-                LocationKind kind = diag.Location.Kind;
+                SyntaxTree tree = diagnostic.Location.SourceTree;
+                LocationKind kind = diagnostic.Location.Kind;
                 string? fileName = tree.FilePath ?? "UnknownFile.cs";
-                FileLinePositionSpan span = diag.Location.GetLineSpan();
+                FileLinePositionSpan span = diagnostic.Location.GetLineSpan();
                 int line = span.StartLinePosition.Line + 1;
                 int charPos = span.StartLinePosition.Character + 1;
 
-                if (compilation.SyntaxTrees.Contains(tree) && diag.Severity == DiagnosticSeverity.Error)
+                if (compilation.SyntaxTrees.Contains(tree) && diagnostic.Severity == DiagnosticSeverity.Error)
                 {
                     _logger.LogWarning(Constants.CompileEventId, "Failed to compile {tree} - {message} (L: {line} | P: {pos}) | Removing from project",
-                        fileName, diag.GetMessage(), line, charPos);
+                        fileName, diagnostic.GetMessage(), line, charPos);
 
                     compilation = compilation.RemoveSyntaxTrees(tree);
-                    message.ExtraData += $"[Error][{diag.Id}][{fileName}] {diag.GetMessage()} | Line: {line}, Pos: {charPos} {Environment.NewLine}";
+                    compilerMessage.ExtraData += $"[Error][{diagnostic.Id}][{fileName}] {diagnostic.GetMessage()} | Line: {line}, Pos: {charPos} {Environment.NewLine}";
                     modified = true;
                     compilationResult.Failed++;
                 }
             }
             else
             {
-                _logger.LogError(Constants.CompileEventId, $"[Error][{diag.Id}] {diag.GetMessage()}");
+                _logger.LogError(Constants.CompileEventId, $"[Error][{diagnostic.Id}] {diagnostic.GetMessage()}");
             }
         }
 
         if (modified && compilation.SyntaxTrees.Length > 0)
         {
-            CompileProject(compilation, message, compilationResult, cancellationToken);
+            CompileProject(compilation, compilerData, compilerMessage, compilationResult, cancellationToken);
         }
     }
 }
