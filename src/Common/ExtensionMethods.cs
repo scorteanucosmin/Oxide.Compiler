@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 using Oxide.CompilerServices.Enums;
 using Oxide.CompilerServices.Models.Compiler;
 
-namespace Oxide.CompilerServices;
+namespace Oxide.CompilerServices.Common;
 
 public static class ExtensionMethods
 {
