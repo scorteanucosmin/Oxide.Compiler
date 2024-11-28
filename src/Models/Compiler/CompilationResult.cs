@@ -10,7 +10,10 @@ public class CompilationResult
     public byte[] Symbols { get; set; } = Array.Empty<byte>();
 
     [NonSerialized]
-    public int Success, Failed;
+    public int Success;
+
+    [NonSerialized]
+    public int Failed;
 
     [JsonConstructor]
     public CompilationResult()

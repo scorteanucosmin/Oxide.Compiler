@@ -14,19 +14,19 @@ namespace Oxide.CompilerServices.Models.Compiler
 
         }
 
-        internal CompilerFile(string name, byte[] data)
+        public CompilerFile(string name, byte[] data)
         {
             Name = name;
             Data = data;
         }
 
-        internal CompilerFile(string directory, string name)
+        public CompilerFile(string directory, string name)
         {
             Name = name;
             Data = File.ReadAllBytes(Path.Combine(directory, Name));
         }
 
-        internal CompilerFile(string path)
+        public CompilerFile(string path)
         {
             Name = Path.GetFileName(path);
             Data = File.ReadAllBytes(path);
