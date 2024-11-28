@@ -6,19 +6,19 @@ using Oxide.CompilerServices.Models.Configuration;
 
 namespace Oxide.CompilerServices
 {
-    internal class OxideResolver : MetadataReferenceResolver
+    public class OxideResolver : MetadataReferenceResolver
     {
         private readonly ILogger _logger;
-        private readonly DirectorySettings _directories;
+        private readonly AppConfiguration _appConfiguration;
         private readonly string _runtimePath;
 
         private readonly HashSet<PortableExecutableReference> _referenceCache;
 
-        public OxideResolver(ILogger<OxideResolver> logger, OxideSettings settings)
+        public OxideResolver(ILogger<OxideResolver> logger, AppConfiguration appConfiguration)
         {
             _logger = logger;
-            _directories = settings.Path;
-            _runtimePath = settings.Compiler.FrameworkPath;
+            _appConfiguration = appConfiguration;
+            _runtimePath = appConfiguration.GetCompilerConfiguration().FrameworkPath;
             _referenceCache = new HashSet<PortableExecutableReference>();
         }
 
@@ -57,7 +57,7 @@ namespace Oxide.CompilerServices
                 name = "mscorlib.dll";
             }
 
-            FileInfo fileSystem = new(Path.Combine(_directories.Libraries, name));
+            FileInfo fileSystem = new(Path.Combine(_appConfiguration.GetDirectoryConfiguration().Libraries, name));
 
             if (fileSystem.Exists)
             {

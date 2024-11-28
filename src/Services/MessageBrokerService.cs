@@ -8,23 +8,22 @@ namespace Oxide.CompilerServices.Services;
 
 public class MessageBrokerService
 {
+    private const int DefaultMaxBufferSize = 1024;
+
     private readonly ILogger<MessageBrokerService> _logger;
-
     private readonly ISerializer _serializer;
-
     private CancellationToken _cancellationToken;
-
     private Stream _input;
-
     private Stream _output;
 
     private readonly ConcurrentQueue<CompilerMessage> _messageQueue;
-
     private readonly Pooling.IArrayPool<byte> _pool;
 
     private bool _disposed;
-
     private int _messageId;
+
+    private bool CanWrite => _input.CanWrite;
+    private bool CanRead => _output.CanRead;
 
     public event Action<CompilerMessage> OnMessageReceived;
 
@@ -36,97 +35,27 @@ public class MessageBrokerService
         _pool = Pooling.ArrayPool<byte>.Shared;
     }
 
-    public void Start(Stream input, Stream output, CancellationToken cancellationToken)
+    public void Initialize(Stream input, Stream output, CancellationToken cancellationToken)
     {
         _input = input ?? throw new ArgumentNullException(nameof(input));
         _output = output ?? throw new ArgumentNullException(nameof(output));
         _cancellationToken = cancellationToken;
 
+        _logger.LogInformation("Message broker service initialized");
+    }
+
+    public void Start()
+    {
         Task.Run(WorkerAsync, _cancellationToken);
 
         _logger.LogInformation("Message broker service started");
-    }
-
-    public void SendMessage(CompilerMessage message)
-    {
-        if (message == null)
-        {
-            throw new ArgumentNullException(nameof(message));
-        }
-
-        //_messageQueue.Enqueue(message);
-        WriteMessage(message);
-    }
-
-    private void WriteMessage(CompilerMessage message)
-    {
-        byte[] sourceArray = _serializer.Serialize(message);
-        byte[] numArray = _pool.Take(sourceArray.Length + 4);
-        try
-        {
-            _logger.LogInformation($"Sending message to client of type: {message.Type}");
-
-            int destinationIndex = sourceArray.Length.WriteBigEndian(numArray);
-            Array.Copy(sourceArray, 0, numArray, destinationIndex, sourceArray.Length);
-            _input.Write(numArray, 0, numArray.Length);
-        }
-        catch (Exception exception)
-        {
-            _logger.LogError($"Error sending message to client: {exception}");
-        }
-        finally
-        {
-            _pool.Return(numArray);
-        }
-    }
-
-    private CompilerMessage? ReadMessage()
-    {
-        byte[] numArray1 = _pool.Take(4);
-        int index1 = 0;
-        try
-        {
-            while (index1 < numArray1.Length)
-            {
-                index1 += _output.Read(numArray1, index1, numArray1.Length - index1);
-                if (index1 == 0)
-                {
-                    return null;
-                }
-            }
-
-            int length = numArray1.ReadBigEndian();
-            byte[] numArray2 = _pool.Take(length);
-            int index2 = 0;
-            try
-            {
-                while (index2 < length)
-                {
-                    index2 += _output.Read(numArray2, index2, length - index2);
-                }
-
-                return _serializer.Deserialize<CompilerMessage>(numArray2);
-            }
-            finally
-            {
-                _pool.Return(numArray2);
-            }
-        }
-        catch (Exception exception)
-        {
-            _logger.LogError($"Error reading message: {exception}");
-            return null;
-        }
-        finally
-        {
-            _pool.Return(numArray1);
-        }
     }
 
     private async ValueTask WorkerAsync()
     {
         while (!_cancellationToken.IsCancellationRequested)
         {
+            _logger.LogInformation("Message broker is running");
             bool processed = false;
             try
             {
@@ -139,7 +68,7 @@ public class MessageBrokerService
                             continue;
                         }
 
-                        WriteMessage(compilerMessage);
+                        await WriteMessageAsync(compilerMessage);
                         processed = true;
                     }
                     else
@@ -153,13 +82,18 @@ public class MessageBrokerService
                 _logger.LogError($"Error sending message: {exception}");
             }
 
+            if (processed)
+            {
+                continue;
+            }
+
             if (OnMessageReceived != null)
             {
                 try
                 {
                     for (int index = 0; index < 3; ++index)
                     {
-                        CompilerMessage? compilerMessage = ReadMessage();
+                        CompilerMessage? compilerMessage = await ReadMessageAsync();
                         if (compilerMessage != null)
                         {
                             OnMessageReceived(compilerMessage);
@@ -179,12 +113,146 @@ public class MessageBrokerService
 
             if (!processed)
             {
-                await Task.Delay(500, _cancellationToken);
+                await Task.Delay(1500, _cancellationToken);
             }
         }
     }
 
-    public int SendReadyMessage()
+    public async ValueTask SendMessageAsync(CompilerMessage message)
+    {
+        if (message == null)
+        {
+            throw new ArgumentNullException(nameof(message));
+        }
+
+        _messageQueue.Enqueue(message);
+    }
+
+    private async ValueTask WriteMessageAsync(CompilerMessage message)
+    {
+        byte[] data = _serializer.Serialize(message);
+        byte[] buffer = _pool.Take(data.Length + sizeof(int));
+        try
+        {
+            _logger.LogInformation($"Sending message to client of type: {message.Type}");
+
+            int destinationIndex = data.Length.WriteBigEndian(buffer);
+            Array.Copy(data, 0, buffer, destinationIndex, data.Length);
+            await OnWriteAsync(buffer, 0, buffer.Length);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError($"Error sending message to client: {exception}");
+        }
+        finally
+        {
+            _pool.Return(buffer);
+        }
+    }
+
+    private async ValueTask<CompilerMessage?> ReadMessageAsync()
+    {
+        byte[] buffer = _pool.Take(sizeof(int));
+        int read = 0;
+        try
+        {
+            while (read < buffer.Length)
+            {
+                read += await OnReadAsync(buffer, read, buffer.Length - read);
+                if (read == 0)
+                {
+                    return null;
+                }
+            }
+
+            int length = buffer.ReadBigEndian();
+            byte[] buffer2 = _pool.Take(length);
+            read = 0;
+            try
+            {
+                while (read < length)
+                {
+                    read += await OnReadAsync(buffer2, read, length - read);
+                }
+
+                return _serializer.Deserialize<CompilerMessage>(buffer2);
+            }
+            finally
+            {
+                _pool.Return(buffer2);
+            }
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError($"Error reading message: {exception}");
+            return null;
+        }
+        finally
+        {
+            _pool.Return(buffer);
+        }
+    }
+
+    private async ValueTask OnWriteAsync(byte[] buffer, int index, int count)
+    {
+        if (_disposed)
+        {
+            throw new ObjectDisposedException(GetType().FullName);
+        }
+
+        if (!CanWrite)
+        {
+            throw new InvalidOperationException("Underlying stream does not allow writing");
+        }
+
+        Validate(buffer, index, count);
+
+        int remaining = count;
+        int written = 0;
+        while (remaining > 0)
+        {
+            int toWrite = Math.Min(DefaultMaxBufferSize, remaining);
+            await _input.WriteAsync(buffer, index + written, toWrite, _cancellationToken);
+            remaining -= toWrite;
+            written += toWrite;
+            await _input.FlushAsync(_cancellationToken);
+        }
+    }
+
+    private async ValueTask<int> OnReadAsync(byte[] buffer, int index, int count)
+    {
+        if (_disposed)
+        {
+            throw new ObjectDisposedException(GetType().FullName);
+        }
+
+        if (!CanRead)
+        {
+            throw new InvalidOperationException("Underlying stream does not allow reading");
+        }
+
+        Validate(buffer, index, count);
+
+        int read = 0;
+        int remaining = count;
+        while (remaining > 0)
+        {
+            int toRead = Math.Min(DefaultMaxBufferSize, remaining);
+            int r = await _output.ReadAsync(buffer, index + read, toRead, _cancellationToken);
+
+            if (r == 0 && read == 0)
+            {
+                return 0;
+            }
+
+            read += r;
+            remaining -= r;
+        }
+
+        return read;
+    }
+
+    public async ValueTask<int> SendReadyMessageAsync()
     {
         CompilerMessage message = new()
         {
@@ -192,11 +260,35 @@ public class MessageBrokerService
             Type = MessageType.Ready,
         };
 
-        SendMessage(message);
+        await SendMessageAsync(message);
         return message.Id;
     }
 
     public void Stop() => Dispose(true);
+
+    private void Validate(byte[] buffer, int index, int count)
+    {
+        if (buffer == null)
+        {
+            throw new ArgumentNullException(nameof(buffer));
+        }
+
+        if (index < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(index), "Value must be zero or greater");
+        }
+
+        if (count < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(count), "Value must be zero or greater");
+        }
+
+        if (index + count > buffer.Length)
+        {
+            throw new ArgumentOutOfRangeException($"{nameof(index)} + {nameof(count)}",
+                "Attempted to read more than buffer can allow");
+        }
+    }
 
     private void Dispose(bool disposing)
     {

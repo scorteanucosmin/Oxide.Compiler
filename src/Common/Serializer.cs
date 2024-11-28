@@ -2,7 +2,7 @@
 using Newtonsoft.Json;
 using Oxide.CompilerServices.Interfaces;
 
-namespace Oxide.CompilerServices.CompilerStream;
+namespace Oxide.CompilerServices.Common;
 
 public class Serializer : ISerializer
 {
