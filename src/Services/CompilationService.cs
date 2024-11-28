@@ -15,11 +15,11 @@ using Serilog.Events;
 
 namespace Oxide.CompilerServices.Services;
 
-internal class CompilationService : ICompilationService
+public class CompilationService : ICompilationService
 {
     private readonly ILogger _logger;
 
-    private readonly OxideSettings _settings;
+    private readonly AppConfiguration _appConfiguration;
 
     private readonly MessageBrokerService _messageBrokerService;
 
@@ -32,32 +32,32 @@ internal class CompilationService : ICompilationService
         "CS1701"
     });
 
-    public CompilationService(ILogger<CompilationService> logger, OxideSettings settings,
+    public CompilationService(ILogger<CompilationService> logger, AppConfiguration appConfiguration,
         MessageBrokerService messageBrokerService, MetadataReferenceResolver metadataReferenceResolver,
         ISerializer serializer)
     {
         _logger = logger;
-        _settings = settings;
+        _appConfiguration = appConfiguration;
         _messageBrokerService = messageBrokerService;
         _metadataReferenceResolver = metadataReferenceResolver;
         _serializer = serializer;
     }
 
-    public async ValueTask CompileAsync(int id, CompilerData data, CancellationToken cancellationToken)
+    public async ValueTask<CompilerMessage> GetCompilationAsync(int id, CompilerData compilerData, CancellationToken cancellationToken)
     {
         Stopwatch stopwatch = Stopwatch.StartNew();
-        _logger.LogInformation(Constants.CompileEventId, $"Starting compilation of job {id} | Total Plugins: {data.SourceFiles.Length}");
+        _logger.LogInformation(Constants.CompileEventId, $"Starting compilation of job {id} | Total Plugins: {compilerData.SourceFiles.Length}");
         string details =
-            $"Settings[Encoding: {data.Encoding}, CSVersion: {data.CSharpVersion()}, Target: {data.OutputKind()}, Platform: {data.Platform()}, StdLib: {data.StdLib}, Debug: {data.Debug}, Preprocessor: {string.Join(", ", data.Preprocessor)}]";
+            $"Settings[Encoding: {compilerData.Encoding}, CSVersion: {compilerData.CSharpVersion()}, Target: {compilerData.OutputKind()}, Platform: {compilerData.Platform()}, StdLib: {compilerData.StdLib}, Debug: {compilerData.Debug}, Preprocessor: {string.Join(", ", compilerData.Preprocessor)}]";
 
-        if (Program.ApplicationLogLevel.MinimumLevel <= LogEventLevel.Debug)
+        if (Constants.ApplicationLogLevel.MinimumLevel <= LogEventLevel.Debug)
         {
-            if (data.ReferenceFiles.Length > 0)
+            if (compilerData.ReferenceFiles.Length > 0)
             {
                 details += Environment.NewLine + $"Reference Files:" + Environment.NewLine;
-                for (int i = 0; i < data.ReferenceFiles.Length; i++)
+                for (int i = 0; i < compilerData.ReferenceFiles.Length; i++)
                 {
-                    CompilerFile reference = data.ReferenceFiles[i];
+                    CompilerFile reference = compilerData.ReferenceFiles[i];
                     if (i > 0)
                     {
                         details += Environment.NewLine;
@@ -67,13 +67,13 @@ internal class CompilationService : ICompilationService
                 }
             }
 
-            if (data.SourceFiles.Length > 0)
+            if (compilerData.SourceFiles.Length > 0)
             {
                 details += Environment.NewLine + $"Plugin Files:" + Environment.NewLine;
 
-                for (int i = 0; i < data.SourceFiles.Length; i++)
+                for (int i = 0; i < compilerData.SourceFiles.Length; i++)
                 {
-                    CompilerFile plugin = data.SourceFiles[i];
+                    CompilerFile plugin = compilerData.SourceFiles[i];
                     if (i > 0)
                     {
                         details += Environment.NewLine;
@@ -95,24 +95,25 @@ internal class CompilationService : ICompilationService
             };
 
             CompilationResult compilationResult = new();
-            CompilerMessage message = await SafeCompileAsync(data, compilerMessage, compilationResult, cancellationToken);
+            CompilerMessage message = await CompileAsync(compilerData, compilerMessage, compilationResult, cancellationToken);
 
             if (compilationResult.Data.Length > 0)
             {
-                _logger.LogInformation(Constants.CompileEventId, $"Successfully compiled {compilationResult.Success}/{data.SourceFiles.Length} plugins for job {id} in {stopwatch.ElapsedMilliseconds}ms");
+                _logger.LogInformation(Constants.CompileEventId, $"Successfully compiled {compilationResult.Success}/{compilerData.SourceFiles.Length} plugins for job {id} in {stopwatch.ElapsedMilliseconds}ms");
             }
             else
             {
                 _logger.LogError(Constants.CompileEventId, $"Failed to compile job {id} in {stopwatch.ElapsedMilliseconds}ms");
             }
 
-            _messageBrokerService.SendMessage(message);
             _logger.LogDebug(Constants.CompileEventId, $"Pushing job {id} back to parent");
+
+            return message;
         }
         catch (Exception exception)
         {
             _logger.LogError(Constants.CompileEventId, exception, $"Error while compiling job {id} - {exception.Message}");
-            _messageBrokerService.SendMessage(new CompilerMessage
+            await _messageBrokerService.SendMessageAsync(new CompilerMessage
             {
                 Id = id,
                 Type = MessageType.Error,
@@ -123,7 +124,7 @@ internal class CompilationService : ICompilationService
         }
     }
 
-    private async ValueTask<CompilerMessage> SafeCompileAsync(CompilerData compilerData, CompilerMessage compilerMessage,
+    private async ValueTask<CompilerMessage> CompileAsync(CompilerData compilerData, CompilerMessage compilerMessage,
         CompilationResult compilationResult, CancellationToken cancellationToken)
     {
         try
