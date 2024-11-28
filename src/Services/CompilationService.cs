@@ -118,7 +118,7 @@ public class CompilationService : ICompilationService
                 Id = id,
                 Type = MessageType.Error,
                 ExtraData = exception
-            });
+            }, cancellationToken);
 
             throw;
         }

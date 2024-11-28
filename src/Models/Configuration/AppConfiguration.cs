@@ -1,7 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Text;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Oxide.CompilerServices.Models.Configuration;

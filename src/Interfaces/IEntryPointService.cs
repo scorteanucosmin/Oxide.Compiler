@@ -2,9 +2,7 @@
 
 public interface IEntryPointService
 {
-    public Task StartAsync(CancellationToken cancellationToken);
+    public ValueTask StartAsync(CancellationToken cancellationToken);
 
-    public Task ExecuteAsync(CancellationToken cancellationToken);
-
-    public Task StopAsync(CancellationToken cancellationToken);
+    public ValueTask StopAsync(CancellationToken cancellationToken);
 }
