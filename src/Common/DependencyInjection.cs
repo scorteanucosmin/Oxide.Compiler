@@ -75,6 +75,6 @@ public static class DependencyInjection
         services.AddSingleton<MessageBrokerService>();
         services.AddSingleton<ISerializer, Serializer>();
         services.AddSingleton<IEntryPointService, EntryPointService>();
-        services.AddHostedService<WorkerService>();
+        services.AddHostedService<AppHostService>();
     }
 }

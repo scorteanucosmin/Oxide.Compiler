@@ -12,15 +12,17 @@ public class AppConfiguration
     private readonly IOptionsMonitor<LoggingConfiguration> _loggingConfiguration;
 
     private readonly Encoding _defaultEncoding;
+    private readonly string _pipeName;
     private readonly Process? _parentProcess;
 
     public AppConfiguration(IConfigurationRoot configurationRoot, IOptionsMonitor<CompilerConfiguration> compilerConfiguration,
         IOptionsMonitor<DirectoryConfiguration> directoryConfiguration, IOptionsMonitor<LoggingConfiguration> loggingConfiguration)
     {
-        _defaultEncoding = Encoding.GetEncoding(configurationRoot.GetValue("DefaultEncoding", Encoding.UTF8.WebName));
         _compilerConfiguration = compilerConfiguration;
         _directoryConfiguration = directoryConfiguration;
         _loggingConfiguration = loggingConfiguration;
+        _defaultEncoding = Encoding.GetEncoding(configurationRoot.GetValue("DefaultEncoding", Encoding.UTF8.WebName));
+        _pipeName = configurationRoot.GetValue("PipeName", string.Empty);
 
         try
         {
@@ -40,6 +42,8 @@ public class AppConfiguration
     public LoggingConfiguration GetLoggingConfiguration() => _loggingConfiguration.CurrentValue;
 
     public Encoding GetDefaultEncoding() => _defaultEncoding;
+
+    public string GetPipeName() => _pipeName;
 
     public Process? GetParentProcess() => _parentProcess;
 }

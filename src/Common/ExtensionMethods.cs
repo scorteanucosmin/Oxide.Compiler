@@ -66,4 +66,29 @@ public static class ExtensionMethods
             _ => Microsoft.CodeAnalysis.CSharp.LanguageVersion.Latest,
         };
     }
+
+    //TODO: Add logger
+    public static async ValueTask Forget(this ValueTask task)
+    {
+        try
+        {
+            await task;
+        }
+        catch (Exception exception)
+        {
+            Console.WriteLine(exception);
+        }
+    }
+
+    public static async Task Forget(this Task task)
+    {
+        try
+        {
+            await task;
+        }
+        catch (Exception exception)
+        {
+            Console.WriteLine(exception);
+        }
+    }
 }

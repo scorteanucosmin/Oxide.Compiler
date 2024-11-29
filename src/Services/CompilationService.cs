@@ -193,7 +193,7 @@ public class CompilationService : ICompilationService
                 string fileName = Path.GetFileName(compilerFile.Name);
                 bool isUnicode = false;
 
-                string sourceString = RegexExtensions.UnicodeEscapePattern().Replace(
+                string sourceString = RegexExtensions.UnicodeEscapePattern.Replace(
                     encoding.GetString(compilerFile.Data), match =>
                     {
                         isUnicode = true;

@@ -4,12 +4,12 @@ using Oxide.CompilerServices.Interfaces;
 
 namespace Oxide.CompilerServices.Services;
 
-public class WorkerService : IHostedService
+public class AppHostService : IHostedService
 {
-    private readonly ILogger<WorkerService> _logger;
+    private readonly ILogger<AppHostService> _logger;
     private readonly IEntryPointService _entryPointService;
 
-    public WorkerService(ILogger<WorkerService> logger, IEntryPointService entryPointService)
+    public AppHostService(ILogger<AppHostService> logger, IEntryPointService entryPointService)
     {
         _logger = logger;
         _entryPointService = entryPointService;

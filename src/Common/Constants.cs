@@ -28,9 +28,9 @@ public static class Constants
 
         ["--path"] = "Path",
         ["--parent"] = "MainProcess",
+        ["--pipe"] = "PipeName",
         ["--mode"] = "Mode",
         ["--source"] = "Source",
-        ["--output"] = "Output",
     };
 
     public static readonly string RootPath = AppContext.BaseDirectory;

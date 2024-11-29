@@ -70,7 +70,7 @@ public class EntryPointService : IEntryPointService
             return;
         }
 
-        await _messageBrokerService.InitializeAsync(cancellationToken);
+        await _messageBrokerService.StartAsync(cancellationToken);
 
         await _messageBrokerService.SendReadyMessageAsync(cancellationToken);
     }

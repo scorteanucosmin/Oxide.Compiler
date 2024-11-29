@@ -29,14 +29,15 @@ public class MessageBrokerService
         _arrayPool = Pooling.ArrayPool<byte>.Shared;
     }
 
-    public async ValueTask InitializeAsync(CancellationToken cancellationToken)
+    public async ValueTask StartAsync(CancellationToken cancellationToken)
     {
         _pipeClient = new NamedPipeClientStream(".", "OxideNamedPipeServer",
             PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
 
         await _pipeClient.ConnectAsync(cancellationToken);
 
-        Task.Run(() => WorkerAsync(cancellationToken), cancellationToken);
+        //TODO: Use long running task via Task.Factory
+        WorkerAsync(cancellationToken);
     }
 
     private async ValueTask WorkerAsync(CancellationToken cancellationToken)
