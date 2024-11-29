@@ -14,123 +14,63 @@ public class MessageBrokerService
 
     private readonly ILogger<MessageBrokerService> _logger;
     private readonly AppConfiguration _appConfiguration;
-    private readonly ICompilationService _compilationService;
     private readonly ISerializer _serializer;
     private readonly Pooling.IArrayPool<byte> _arrayPool;
 
     private NamedPipeClientStream _pipeClient;
 
-    private bool _disposed;
     private int _messageId;
 
-    public MessageBrokerService(ILogger<MessageBrokerService> logger, AppConfiguration appConfiguration,
-        ICompilationService compilationService, ISerializer serializer)
+    public event Action<CompilerMessage> OnMessageReceived;
+
+    public MessageBrokerService(ILogger<MessageBrokerService> logger, AppConfiguration appConfiguration, ISerializer serializer)
     {
         _logger = logger;
         _appConfiguration = appConfiguration;
-        _compilationService = compilationService;
         _serializer = serializer;
         _arrayPool = Pooling.ArrayPool<byte>.Shared;
     }
 
     public async ValueTask StartAsync(CancellationToken cancellationToken)
     {
-        _pipeClient = new NamedPipeClientStream(".", _appConfiguration.GetPipeName(), PipeDirection.InOut);
+        _pipeClient = new NamedPipeClientStream(".", _appConfiguration.GetPipeName(), PipeDirection.InOut,
+            PipeOptions.Asynchronous);
 
         await _pipeClient.ConnectAsync(cancellationToken);
 
-        //TODO: Use long running task via Task.Factory
-        WorkerAsync(cancellationToken);
+        Task.Factory.StartNew(() =>
+        {
+            WorkerAsync(cancellationToken);
+        }, TaskCreationOptions.LongRunning);
     }
 
     private async ValueTask WorkerAsync(CancellationToken cancellationToken)
     {
-        while (!cancellationToken.IsCancellationRequested)
+        while (_pipeClient.IsConnected)
         {
             bool processed = false;
 
-            try
+            if (OnMessageReceived != null)
             {
-                CompilerMessage? compilerMessage = await ReadMessageAsync(cancellationToken);
-                if (compilerMessage != null)
+                try
                 {
-                    await HandleReceivedMessageAsync(compilerMessage, cancellationToken);
-                    processed = true;
+                    CompilerMessage? compilerMessage = await ReadMessageAsync(cancellationToken);
+                    if (compilerMessage != null)
+                    {
+                        _logger.LogInformation($"Received message from server: {compilerMessage.Type}");
+                        OnMessageReceived(compilerMessage);
+                        processed = true;
+                    }
                 }
-            }
-            catch (Exception exception)
-            {
-                _logger.LogError($"Error reading message: {exception}");
+                catch (Exception exception)
+                {
+                    _logger.LogError($"Error reading message: {exception}");
+                }
             }
 
             if (!processed)
             {
                 await Task.Delay(1000, cancellationToken);
-            }
-        }
-    }
-
-    private async ValueTask HandleReceivedMessageAsync(CompilerMessage compilerMessage, CancellationToken cancellationToken)
-    {
-        switch (compilerMessage.Type)
-        {
-            case MessageType.Data:
-            {
-                try
-                {
-                    CompilerData compilerData = _serializer.Deserialize<CompilerData>(compilerMessage.Data);
-
-                    _logger.LogDebug(Constants.CompileEventId,
-                        $"Received compile job {compilerMessage.Id} | Plugins: {compilerData.SourceFiles.Length}, References: {compilerData.ReferenceFiles.Length}");
-
-                    CompilerMessage compilationMessage =
-                        await _compilationService.GetCompilationAsync(compilerMessage.Id, compilerData,
-                            cancellationToken);
-
-                    await SendMessageAsync(compilationMessage, cancellationToken);
-
-                    _logger.LogInformation(Constants.CompileEventId, $"Completed compile job {compilerMessage.Id}");
-                }
-                catch (Exception exception)
-                {
-                    _logger.LogError(Constants.CompileEventId,
-                        $"Error occurred while compiling job {compilerMessage.Id}: {exception}");
-                }
-                break;
-            }
-            case MessageType.Heartbeat:
-            {
-                _logger.LogInformation("Received heartbeat from server");
-                break;
-            }
-            case MessageType.Shutdown:
-            {
-                Stop();
-                break;
-            }
-            case MessageType.Unknown:
-            {
-                break;
-            }
-            case MessageType.Acknowledge:
-            {
-                break;
-            }
-            case MessageType.VersionInfo:
-            {
-                break;
-            }
-            case MessageType.Ready:
-            {
-                break;
-            }
-            case MessageType.Command:
-            {
-                break;
-            }
-            case MessageType.Error:
-            {
-                break;
             }
         }
     }
@@ -210,11 +150,6 @@ public class MessageBrokerService
 
     private async ValueTask OnWriteAsync(byte[] buffer, int index, int count, CancellationToken cancellationToken)
     {
-        if (_disposed)
-        {
-            throw new ObjectDisposedException(GetType().FullName);
-        }
-
         Validate(buffer, index, count);
 
         int remaining = count;
@@ -231,11 +166,6 @@ public class MessageBrokerService
 
     private async ValueTask<int> OnReadAsync(byte[] buffer, int index, int count, CancellationToken cancellationToken)
     {
-        if (_disposed)
-        {
-            throw new ObjectDisposedException(GetType().FullName);
-        }
-
         Validate(buffer, index, count);
 
         int read = 0;
@@ -269,7 +199,10 @@ public class MessageBrokerService
         return message.Id;
     }
 
-    public void Stop() => Dispose();
+    public void Stop()
+    {
+        _pipeClient.Dispose();
+    }
 
     private void Validate(byte[] buffer, int index, int count)
     {
@@ -293,17 +226,5 @@ public class MessageBrokerService
             throw new ArgumentOutOfRangeException($"{nameof(index)} + {nameof(count)}",
                 "Attempted to read more than buffer can allow");
         }
-    }
-
-    private void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-
-        _pipeClient.Dispose();
     }
 }
