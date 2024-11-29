@@ -32,7 +32,6 @@ public static class DependencyInjection
         if (mode == "test")
         {
             string? sourcePath = configurationRoot.GetValue<string>("Source");
-            string? outputPath = configurationRoot.GetValue<string>("Output");
             //return CompileTestFilesAsync(sourcePath, outputPath, application.ServiceProvider);
         }*/
 

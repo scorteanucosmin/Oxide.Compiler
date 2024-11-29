@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Oxide.CompilerServices.Common;
 using Oxide.CompilerServices.Enums;
@@ -15,17 +16,20 @@ public class EntryPointService : IEntryPointService
 {
     private readonly ILogger _logger;
     private readonly AppConfiguration _appConfiguration;
+    private readonly IHostApplicationLifetime _appLifetime;
     private readonly MessageBrokerService _messageBrokerService;
     private readonly ICompilationService _compilationService;
     private readonly ISerializer _serializer;
 
     public EntryPointService(ILogger<EntryPointService> logger, AppConfiguration appConfiguration,
-        MessageBrokerService messageBrokerService, ICompilationService compilationService, ISerializer serializer)
+        IHostApplicationLifetime appLifetime, MessageBrokerService messageBrokerService,
+        ICompilationService compilationService, ISerializer serializer)
     {
         Constants.ApplicationLogLevel.MinimumLevel = appConfiguration.GetLoggingConfiguration().Level.ToSerilog();
 
         _logger = logger;
         _appConfiguration = appConfiguration;
+        _appLifetime = appLifetime;
         _messageBrokerService = messageBrokerService;
         _compilationService = compilationService;
         _serializer = serializer;
@@ -39,8 +43,8 @@ public class EntryPointService : IEntryPointService
         Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
         Thread.CurrentThread.Priority = ThreadPriority.BelowNormal;
         Thread.CurrentThread.IsBackground = true;
-        AppDomain.CurrentDomain.ProcessExit += (_, _) => Stop("SIGTERM", cancellationToken);
-        Console.CancelKeyPress += (_, _) => Stop("SIGINT (Ctrl + C)", cancellationToken);
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => RequestShutdown("SIGTERM");
+        Console.CancelKeyPress += (_, _) => RequestShutdown("SIGINT (Ctrl + C)");
 
         Process? parentProcess = _appConfiguration.GetParentProcess();
         if (parentProcess == null)
@@ -54,14 +58,14 @@ public class EntryPointService : IEntryPointService
             if (!parentProcess.HasExited)
             {
                 parentProcess.EnableRaisingEvents = true;
-                parentProcess.Exited += (_, _) => Stop("parent process shutdown", cancellationToken);
+                parentProcess.Exited += (_, _) => RequestShutdown("parent process shutdown");
 
                 _logger.LogInformation(Constants.StartupEventId, "Watching parent process ([{0}] {1}) for shutdown",
                     parentProcess.Id, parentProcess.ProcessName);
             }
             else
             {
-                Stop("parent process exited", cancellationToken);
+                RequestShutdown("parent process exited");
                 return;
             }
         }
@@ -119,7 +123,7 @@ public class EntryPointService : IEntryPointService
             }
             case MessageType.Shutdown:
             {
-                Stop("shutdown", cancellationToken);
+                RequestShutdown("shutdown");
                 break;
             }
             case MessageType.Unknown:
@@ -149,7 +153,7 @@ public class EntryPointService : IEntryPointService
         }
     }
 
-    private void Stop(string? source, CancellationToken cancellationToken)
+    private void RequestShutdown(string? source)
     {
         string message = "Termination request has been received";
         if (!string.IsNullOrWhiteSpace(message))
@@ -159,16 +163,14 @@ public class EntryPointService : IEntryPointService
 
         _logger.LogInformation(Constants.ShutdownEventId, message);
 
-        _messageBrokerService.OnMessageReceived -= compilerMessage =>
-            OnMessageReceivedAsync(compilerMessage, cancellationToken);
-
-        _messageBrokerService.Stop();
-
-        Environment.Exit(0);
+        _appLifetime.StopApplication();
     }
 
     public async ValueTask StopAsync(CancellationToken cancellationToken)
     {
-        //throw new NotImplementedException();
+        _messageBrokerService.OnMessageReceived -= compilerMessage =>
+            OnMessageReceivedAsync(compilerMessage, cancellationToken);
+
+        _messageBrokerService.Stop();
     }
 }

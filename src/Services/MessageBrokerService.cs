@@ -1,6 +1,5 @@
 ﻿using System.IO.Pipes;
 using Microsoft.Extensions.Logging;
-using Oxide.CompilerServices.Common;
 using Oxide.CompilerServices.Enums;
 using Oxide.CompilerServices.Interfaces;
 using Oxide.CompilerServices.Models.Compiler;
@@ -38,10 +37,7 @@ public class MessageBrokerService
 
         await _pipeClient.ConnectAsync(cancellationToken);
 
-        Task.Factory.StartNew(() =>
-        {
-            WorkerAsync(cancellationToken);
-        }, TaskCreationOptions.LongRunning);
+        Task.Run(() => WorkerAsync(cancellationToken), cancellationToken);
     }
 
     private async ValueTask WorkerAsync(CancellationToken cancellationToken)
