@@ -42,4 +42,6 @@ public static class Constants
     public static readonly LoggingLevelSwitch ApplicationLogLevel = new();
     public const bool Debug = false;
 #endif
+
+    public const string ShutdownMessageFormat = "Received shutdown signal from {0}";
 }

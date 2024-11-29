@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
+using System.Text;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Oxide.CompilerServices.Common;
@@ -155,13 +156,14 @@ public class EntryPointService : IEntryPointService
 
     private void RequestShutdown(string? source)
     {
-        string message = "Termination request has been received";
-        if (!string.IsNullOrWhiteSpace(message))
+        if (!string.IsNullOrEmpty(source))
         {
-            message += $" from {source}";
-        }
+            StringBuilder stringBuilder = new();
 
-        _logger.LogInformation(Constants.ShutdownEventId, message);
+            stringBuilder.AppendFormat(Constants.ShutdownMessageFormat, source);
+
+            _logger.LogInformation(Constants.ShutdownEventId, stringBuilder.ToString());
+        }
 
         _appLifetime.StopApplication();
     }
