@@ -4,6 +4,7 @@ using Oxide.CompilerServices.Common;
 using Oxide.CompilerServices.Enums;
 using Oxide.CompilerServices.Interfaces;
 using Oxide.CompilerServices.Models.Compiler;
+using Oxide.CompilerServices.Models.Configuration;
 
 namespace Oxide.CompilerServices.Services;
 
@@ -12,6 +13,7 @@ public class MessageBrokerService
     private const int DefaultMaxBufferSize = 1024;
 
     private readonly ILogger<MessageBrokerService> _logger;
+    private readonly AppConfiguration _appConfiguration;
     private readonly ICompilationService _compilationService;
     private readonly ISerializer _serializer;
     private readonly Pooling.IArrayPool<byte> _arrayPool;
@@ -21,9 +23,11 @@ public class MessageBrokerService
     private bool _disposed;
     private int _messageId;
 
-    public MessageBrokerService(ILogger<MessageBrokerService> logger, ICompilationService compilationService, ISerializer serializer)
+    public MessageBrokerService(ILogger<MessageBrokerService> logger, AppConfiguration appConfiguration,
+        ICompilationService compilationService, ISerializer serializer)
     {
         _logger = logger;
+        _appConfiguration = appConfiguration;
         _compilationService = compilationService;
         _serializer = serializer;
         _arrayPool = Pooling.ArrayPool<byte>.Shared;
@@ -31,8 +35,7 @@ public class MessageBrokerService
 
     public async ValueTask StartAsync(CancellationToken cancellationToken)
     {
-        _pipeClient = new NamedPipeClientStream(".", "OxideNamedPipeServer",
-            PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+        _pipeClient = new NamedPipeClientStream(".", _appConfiguration.GetPipeName(), PipeDirection.InOut);
 
         await _pipeClient.ConnectAsync(cancellationToken);
 
