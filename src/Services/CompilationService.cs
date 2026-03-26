@@ -296,7 +296,7 @@ public class CompilationService : ICompilationService
                         compilerMessage.Errors ??= new List<CompilerError>();
                         compilerMessage.Errors.Add(new CompilerError
                         {
-                            Message = $"[{compilerMessage.Errors.Count + 1}] {diagnosticMessage} at {line}:{position}",
+                            Message = $"{diagnosticMessage} at {line}:{position}",
                             File = fileName,
                             Line = line,
                             Position = position
