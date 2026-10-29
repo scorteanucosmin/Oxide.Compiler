@@ -17,6 +17,8 @@ public class CompilerData
 
     public string[] Preprocessor { get; set; }
 
+    public string[] IgnoreAccessChecksTo { get; set; } = [];
+
     public CompilerData()
     {
         StdLib = false;

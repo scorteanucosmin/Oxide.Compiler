@@ -216,8 +216,15 @@ public class CompilationService : ICompilationService
                     deterministic: true, optimizationLevel: OptimizationLevel.Debug)
                 .WithAssemblyIdentityComparer(DesktopAssemblyIdentityComparer.Default);
 
+            IEnumerable<SyntaxTree> sources = syntaxTrees.Values;
+            if (compilerData.IgnoreAccessChecksTo is { Length: > 0 })
+            {
+                compilationOptions = AccessChecks.Ignore(compilationOptions);
+                sources = sources.Append(AccessChecks.Attributes(compilerData.IgnoreAccessChecksTo, parseOptions, syntaxTrees.Values));
+            }
+
             string assemblyName = Path.GetRandomFileName();
-            CSharpCompilation compilation = CSharpCompilation.Create(assemblyName, syntaxTrees.Values, references,
+            CSharpCompilation compilation = CSharpCompilation.Create(assemblyName, sources, references,
                 compilationOptions);
 
             compilationResult.Name = compilation.AssemblyName;
@@ -243,6 +250,8 @@ public class CompilationService : ICompilationService
         }
     }
 
+    private static bool IsPlugin(SyntaxTree tree) => tree.FilePath.Length > 0;
+
     private void CompileProject(CSharpCompilation compilation, CompilerData compilerData, CompilerMessage compilerMessage,
         CompilationResult compilationResult, CancellationToken cancellationToken)
     {
@@ -265,7 +274,7 @@ public class CompilationService : ICompilationService
         {
             compilationResult.Data = peStreamArray;
             compilationResult.Symbols = pdbStream.ToArray();
-            compilationResult.Success = compilation.SyntaxTrees.Length;
+            compilationResult.Success = compilation.SyntaxTrees.Count(IsPlugin);
             return;
         }
 
@@ -335,7 +344,7 @@ public class CompilationService : ICompilationService
             }
         }
 
-        if (modified && compilation.SyntaxTrees.Length > 0)
+        if (modified && compilation.SyntaxTrees.Any(IsPlugin))
         {
             CompileProject(compilation, compilerData, compilerMessage, compilationResult, cancellationToken);
         }
