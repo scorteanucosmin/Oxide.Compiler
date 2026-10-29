@@ -5,7 +5,7 @@ namespace Oxide.CompilerServices.Types.Compilation;
 public class CompilerFile
 {
     public string Name { get; set; }
-    public byte[] Data { get; set; }
+    public byte[]? Data { get; set; }
 
     [JsonConstructor]
     public CompilerFile()

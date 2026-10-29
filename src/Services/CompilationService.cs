@@ -58,7 +58,7 @@ public class CompilationService : ICompilationService
                         details += Environment.NewLine;
                     }
 
-                    details += $"  - [{i + 1}] {Path.GetFileName(reference.Name)}({reference.Data.Length})";
+                    details += $"  - [{i + 1}] {Path.GetFileName(reference.Name)}({reference.Data?.Length.ToString() ?? reference.Name})";
                 }
             }
 
@@ -143,13 +143,10 @@ public class CompilationService : ICompilationService
             HashSet<MetadataReference> references = new();
             if (compilerData.StdLib)
             {
-                references.Add(_oxideResolver.GetOrAddReference("System.Private.CoreLib.dll")!);
-                references.Add(_oxideResolver.GetOrAddReference("netstandard.dll")!);
-                references.Add(_oxideResolver.GetOrAddReference("System.Runtime.dll")!);
-                references.Add(_oxideResolver.GetOrAddReference("System.Collections.dll")!);
-                references.Add(_oxideResolver.GetOrAddReference("System.Collections.Immutable.dll")!);
-                references.Add(_oxideResolver.GetOrAddReference("System.Linq.dll")!);
-                references.Add(_oxideResolver.GetOrAddReference("System.Data.Common.dll")!);
+                foreach (PortableExecutableReference reference in _oxideResolver.GetFrameworkReferences())
+                {
+                    references.Add(reference);
+                }
             }
 
             if (compilerData.ReferenceFiles is { Length: > 0 })

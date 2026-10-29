@@ -1,5 +1,5 @@
 using System.Collections.Immutable;
-using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using Microsoft.CodeAnalysis;
 using Microsoft.Extensions.Logging;
@@ -13,8 +13,7 @@ public class OxideResolver : MetadataReferenceResolver
     private readonly ILogger _logger;
     private readonly AppConfiguration _appConfiguration;
     private readonly string _runtimePath;
-    private readonly Dictionary<string, AssemblyMetadata> _references;
-    private readonly HashSet<string>? _mergedAssemblyNames;
+    private readonly Dictionary<string, AssemblyMetadata> _references = new(StringComparer.OrdinalIgnoreCase);
     public override bool ResolveMissingAssemblies => true;
 
     public OxideResolver(ILogger<OxideResolver> logger, AppConfiguration appConfiguration)
@@ -22,9 +21,6 @@ public class OxideResolver : MetadataReferenceResolver
         _logger = logger;
         _appConfiguration = appConfiguration;
         _runtimePath = appConfiguration.GetCompilerConfiguration().FrameworkPath;
-        _references = new Dictionary<string, AssemblyMetadata>();
-        _mergedAssemblyNames =
-            GetMergedAssemblies(Path.Combine(appConfiguration.GetDirectoryConfiguration().Libraries, "Oxide.References.dll"));
     }
 
     public override bool Equals(object? other) => ReferenceEquals(this, other);
@@ -35,37 +31,46 @@ public class OxideResolver : MetadataReferenceResolver
         MetadataReferenceProperties properties) => ImmutableArray<PortableExecutableReference>.Empty;
 
     public override PortableExecutableReference? ResolveMissingAssembly(MetadataReference metadataReference,
-        AssemblyIdentity assemblyIdentity) => Resolve(metadataReference, assemblyIdentity);
+        AssemblyIdentity assemblyIdentity)
+    {
+        _logger.LogDebug("{0} requires {1}", metadataReference.Display, assemblyIdentity.GetDisplayName());
+        return GetOrAddReference($"{assemblyIdentity.Name}.dll");
+    }
+
+    public IEnumerable<PortableExecutableReference> GetFrameworkReferences()
+    {
+        foreach (string path in Directory.EnumerateFiles(_runtimePath, "*.dll"))
+        {
+            string name = Path.GetFileName(path);
+            if (!IsFramework(Path.GetFileNameWithoutExtension(name)) || !HasMetadata(path))
+            {
+                continue;
+            }
+
+            PortableExecutableReference? reference = GetOrAddReference(name);
+            if (reference != null)
+            {
+                yield return reference;
+            }
+        }
+    }
 
     public PortableExecutableReference? GetOrAddReference(string name)
     {
-        if (name.Equals("System.Private.CoreLib.dll"))
-        {
-            name = "mscorlib.dll";
-        }
-
         PortableExecutableReference? cachedReference = GetCachedReference(name);
         if (cachedReference != null)
         {
             return cachedReference;
         }
 
-        string libraryPath = GetLibraryPath(name);
-        FileInfo fileInfo = new(libraryPath);
-
-        _logger.LogDebug("Adding reference {0} from {1}", name, fileInfo.FullName);
-
-        if (fileInfo.Exists)
+        foreach (string directory in new[] { _appConfiguration.GetDirectoryConfiguration().Libraries, _runtimePath })
         {
-            _logger.LogDebug("Creating reference from {0}", fileInfo.FullName);
-            return GetMetadataReferenceFromFile(name, fileInfo.FullName);
-        }
-
-        fileInfo = new FileInfo(Path.Combine(_runtimePath, name));
-        if (fileInfo.Exists)
-        {
-            _logger.LogDebug("Creating reference from {0}", fileInfo.FullName);
-            return GetMetadataReferenceFromFile(name, fileInfo.FullName);
+            string path = Path.Combine(directory, name);
+            if (File.Exists(path))
+            {
+                _logger.LogDebug("Creating reference {0} from {1}", name, path);
+                return GetMetadataReferenceFromFile(name, path);
+            }
         }
 
         _logger.LogError("Unable to find required dependency {0}", name);
@@ -74,163 +79,52 @@ public class OxideResolver : MetadataReferenceResolver
 
     public PortableExecutableReference? GetOrAddReference(CompilerFile compilerFile)
     {
-        string name = compilerFile.Name;
-
-        _logger.LogDebug("Adding reference {0}", name);
-
-        if (IsMergedAssembly(name))
-        {
-            _logger.LogDebug("Assembly {0} is a merged assembly, routing to {1}", name, "Oxide.References.dll");
-            name = "Oxide.References.dll";
-        }
-
+        string name = Path.GetFileName(compilerFile.Name);
         PortableExecutableReference? cachedReference = GetCachedReference(name);
         if (cachedReference != null)
         {
             return cachedReference;
         }
 
-        if (ShouldLoadFromFile(compilerFile))
+        if (compilerFile.Data is { Length: > 0 })
         {
-            _logger.LogDebug("Creating reference {0} from file", name);
-            return GetMetadataReferenceFromFile(name);
+            _logger.LogDebug("Creating reference from image {0}", name);
+            return GetMetadataReferenceFromImage(compilerFile.Data, name);
         }
 
-        _logger.LogDebug("Creating reference from image {0}", name);
-        return GetMetadataReferenceFromImage(compilerFile.Data, name);
+        if (File.Exists(compilerFile.Name))
+        {
+            _logger.LogDebug("Creating reference {0} from {1}", name, compilerFile.Name);
+            return GetMetadataReferenceFromFile(name, compilerFile.Name);
+        }
+
+        return GetOrAddReference(name);
     }
 
-    private PortableExecutableReference? Resolve(MetadataReference metadataReference, AssemblyIdentity assemblyIdentity)
+    private static bool IsFramework(string name) =>
+        name is "mscorlib" or "netstandard" or "System" or "Microsoft.CSharp" or "Microsoft.VisualBasic"
+        || name.StartsWith("System.", StringComparison.Ordinal)
+        || name.StartsWith("Microsoft.Win32.", StringComparison.Ordinal)
+        || name.StartsWith("Microsoft.VisualBasic.", StringComparison.Ordinal);
+
+    private static bool HasMetadata(string path)
     {
-        _logger.LogDebug("{0} requires {1}", metadataReference.Display, assemblyIdentity.GetDisplayName());
-
-        string name = $"{assemblyIdentity.Name}.dll";
-        if (name == "System.Private.CoreLib.dll")
+        try
         {
-            name = "mscorlib.dll";
+            using FileStream stream = File.OpenRead(path);
+            using PEReader reader = new(stream);
+            return reader.HasMetadata;
         }
-
-        if (IsMergedAssembly(name))
-        {
-            _logger.LogDebug("Assembly {0} is a merged assembly, routing to {1}", name, "Oxide.References.dll");
-            name = "Oxide.References.dll";
-        }
-
-        PortableExecutableReference? cachedReference = GetCachedReference(name);
-        if (cachedReference != null)
-        {
-            return cachedReference;
-        }
-
-        string libraryPath = GetLibraryPath(name);
-        FileInfo fileInfo = new(libraryPath);
-
-        _logger.LogDebug("Resolving {0} from {1}", name, fileInfo.FullName);
-
-        if (fileInfo.Exists)
-        {
-            _logger.LogDebug("Creating reference from {0}", fileInfo.FullName);
-            return GetMetadataReferenceFromFile(name, fileInfo.FullName);
-        }
-
-        fileInfo = new FileInfo(Path.Combine(_runtimePath, name));
-        if (fileInfo.Exists)
-        {
-            _logger.LogDebug("Creating reference from {0}", fileInfo.FullName);
-            return GetMetadataReferenceFromFile(name, fileInfo.FullName);
-        }
-
-        _logger.LogError("Unable to find required dependency {0}", name);
-        return null;
-    }
-
-    private HashSet<string>? GetMergedAssemblies(string path)
-    {
-        using AssemblyMetadata metadata = AssemblyMetadata.CreateFromFile(path);
-        ImmutableArray<ModuleMetadata> metadataModules = metadata.GetModules();
-        if (metadataModules.Length == 0)
-        {
-            return null;
-        }
-
-        ModuleMetadata metadataModule = metadataModules[0];
-        MetadataReader metadataReader = metadataModule.GetMetadataReader();
-
-        AssemblyDefinition assemblyDefinition = metadataReader.GetAssemblyDefinition();
-        CustomAttributeHandleCollection customAttributes = assemblyDefinition.GetCustomAttributes();
-
-        HashSet<string> collection = new();
-        foreach (CustomAttributeHandle customAttributeHandle in customAttributes)
-        {
-            CustomAttribute customAttribute = metadataReader.GetCustomAttribute(customAttributeHandle);
-            if (!IsAssemblyMetadataAttribute(metadataReader, customAttribute))
-            {
-                continue;
-            }
-
-            BlobReader blobReader = metadataReader.GetBlobReader(customAttribute.Value);
-
-            blobReader.ReadUInt16();
-
-            string? key = blobReader.ReadSerializedString();
-            if (key != "Oxide.MergedAssembly")
-            {
-                continue;
-            }
-
-            string? value = blobReader.ReadSerializedString();
-            if (string.IsNullOrEmpty(value))
-            {
-                continue;
-            }
-
-            collection.Add($"{value}.dll");
-        }
-
-        return collection;
-    }
-
-    private bool IsAssemblyMetadataAttribute(MetadataReader metadataReader, CustomAttribute customAttribute)
-    {
-        EntityHandle constructor = customAttribute.Constructor;
-        if (constructor.Kind != HandleKind.MemberReference)
+        catch (BadImageFormatException)
         {
             return false;
         }
-
-        MemberReference memberReference = metadataReader.GetMemberReference((MemberReferenceHandle)constructor);
-        if (memberReference.Parent.Kind != HandleKind.TypeReference)
-        {
-            return false;
-        }
-
-        TypeReference typeRef = metadataReader.GetTypeReference((TypeReferenceHandle)memberReference.Parent);
-
-        return metadataReader.GetString(typeRef.Namespace) == "System.Reflection"
-               && metadataReader.GetString(typeRef.Name) == "AssemblyMetadataAttribute";
-    }
-
-    private bool IsMergedAssembly(string name)
-    {
-        if (_mergedAssemblyNames != null)
-        {
-            return _mergedAssemblyNames.Contains(name);
-        }
-
-        _logger.LogError("Merged assembly names were not found");
-        return false;
     }
 
     private PortableExecutableReference? GetCachedReference(string name)
     {
         AssemblyMetadata? reference = _references.GetValueOrDefault(name);
-        if (reference == null)
-        {
-            return null;
-        }
-
-        _logger.LogDebug("Found cached reference for {0}", name);
-        return reference.GetReference(filePath: name);
+        return reference?.GetReference(filePath: name);
     }
 
     private PortableExecutableReference GetMetadataReferenceFromImage(byte[] data, string name)
@@ -240,18 +134,12 @@ public class OxideResolver : MetadataReferenceResolver
         return assemblyMetadata.GetReference(filePath: name);
     }
 
-    private PortableExecutableReference GetMetadataReferenceFromFile(string name, string? path = null)
+    private PortableExecutableReference GetMetadataReferenceFromFile(string name, string path)
     {
-        AssemblyMetadata assemblyMetadata = AssemblyMetadata.CreateFromFile(path ?? name);
+        AssemblyMetadata assemblyMetadata = AssemblyMetadata.CreateFromFile(path);
         _references.Add(name, assemblyMetadata);
         return assemblyMetadata.GetReference(filePath: name);
     }
-
-    private bool ShouldLoadFromFile(CompilerFile compilerFile) =>
-        File.Exists(compilerFile.Name) && (compilerFile.Data == null || compilerFile.Data.Length == 0);
-
-    private string GetLibraryPath(string name) =>
-        Path.Combine(_appConfiguration.GetDirectoryConfiguration().Libraries, name);
 
     public void Cleanup()
     {
