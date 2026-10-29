@@ -255,9 +255,18 @@ public class CompilationService : ICompilationService
         EmitResult result = compilation.Emit(peStream, pdbStream, options: Constants.CompilationEmitOptions,
             cancellationToken: cancellationToken);
 
+        byte[] peStreamArray = peStream.ToArray();
+
+        /*if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("")))
+        {
+            Directory.CreateDirectory(compiledAssemblyPath);
+            string filePath = Path.Combine(compiledAssemblyPath, $"{compilation.AssemblyName}.dll");
+            File.WriteAllBytes(filePath, peStreamArray);
+        }*/
+
         if (result.Success)
         {
-            compilationResult.Data = peStream.ToArray();
+            compilationResult.Data = peStreamArray;
             compilationResult.Symbols = pdbStream.ToArray();
             compilationResult.Success = compilation.SyntaxTrees.Length;
             return;
